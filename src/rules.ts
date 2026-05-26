@@ -301,4 +301,300 @@ const RULES: Rule[] = [
       };
     },
   },
+
+  // ============ 新增规则 v0.2.0 ============
+
+  {
+    id: 'MCP-013',
+    severity: 'HIGH',
+    title: '不安全的文件系统访问范围',
+    description: 'args 中包含根目录或系统敏感路径',
+    check(server) {
+      if (!server.args) return null;
+      const sensitivePaths = ['/etc/', '/root/', '/proc/', '/sys/', 'C:\\Windows\\', '/var/log/'];
+      const dangerous = server.args.filter((a) =>
+        typeof a === 'string' && sensitivePaths.some((p) => a.includes(p))
+      );
+      if (dangerous.length === 0) return null;
+      return {
+        ruleId: 'MCP-013',
+        severity: 'HIGH',
+        title: '访问系统敏感路径',
+        description: `命令参数包含系统敏感路径: ${dangerous.join(', ')}`,
+        serverName: server.name,
+        detail: 'MCP 服务器可以访问 /etc/、/proc/ 等系统敏感目录，存在信息泄露和提权风险',
+        suggestion: '将文件访问限制在工作目录内，禁止访问系统敏感路径。',
+        owaspRef: 'A01:2021 – Broken Access Control',
+      };
+    },
+  },
+
+  {
+    id: 'MCP-014',
+    severity: 'MEDIUM',
+    title: '命令缺少超时配置',
+    description: 'MCP 服务器命令没有设置超时，可能导致资源耗尽',
+    check(server) {
+      if (!server.command) return null;
+      const hasTimeout = server.args?.some((a) =>
+        typeof a === 'string' && /timeout|--timeout|-t\s+\d+/.test(a)
+      );
+      if (hasTimeout) return null;
+      return {
+        ruleId: 'MCP-014',
+        severity: 'MEDIUM',
+        title: '缺少命令超时限制',
+        description: `${server.name} 的命令未配置超时参数`,
+        serverName: server.name,
+        detail: '长时间运行的命令可能导致 CPU/内存资源耗尽',
+        suggestion: '在命令参数中添加超时配置，例如 --timeout 30 或使用 timeout 命令包装。',
+      };
+    },
+  },
+
+  {
+    id: 'MCP-015',
+    severity: 'MEDIUM',
+    title: '容器逃逸风险',
+    description: '检测 Docker Socket 挂载或其他容器逃逸路径',
+    check(server) {
+      if (!server.args) return null;
+      const escapePaths = ['/var/run/docker.sock', '/run/docker.sock', '/proc/1/ns/'];
+      const dangerous = server.args.filter((a) =>
+        typeof a === 'string' && escapePaths.some((p) => a.includes(p))
+      );
+      if (dangerous.length === 0) return null;
+      return {
+        ruleId: 'MCP-015',
+        severity: 'MEDIUM',
+        title: '潜在的容器逃逸风险',
+        description: `命令参数引用了 Docker Socket 或容器命名空间: ${dangerous.join(', ')}`,
+        serverName: server.name,
+        detail: '访问 Docker Socket 或 /proc 命名空间可能让攻击者逃逸容器',
+        suggestion: '移除 Docker Socket 挂载，使用 Docker-in-Docker 或无服务器容器方案。',
+        owaspRef: 'A01:2021 – Broken Access Control',
+      };
+    },
+  },
+
+  {
+    id: 'MCP-016',
+    severity: 'MEDIUM',
+    title: '调试模式可能被启用',
+    description: '检测 debug/verbose/trace 等调试标志',
+    check(server) {
+      if (!server.args) return null;
+      const debugFlags = server.args.filter((a) =>
+        typeof a === 'string' && /^(--debug|--verbose|-vvv|--trace|--log-level\s*=\s*debug)$/i.test(a)
+      );
+      if (debugFlags.length === 0) return null;
+      return {
+        ruleId: 'MCP-016',
+        severity: 'MEDIUM',
+        title: '调试模式已启用',
+        description: `${server.name} 启用了调试标志: ${debugFlags.join(', ')}`,
+        serverName: server.name,
+        detail: '调试模式可能输出敏感信息到日志（API Key、用户数据等）',
+        suggestion: '生产环境关闭调试模式，使用 INFO 或 WARN 日志级别。',
+      };
+    },
+  },
+
+  {
+    id: 'MCP-017',
+    severity: 'HIGH',
+    title: 'Python/Node eval 执行风险',
+    description: '检测 python -c / node -e 等动态代码执行',
+    check(server) {
+      if (!server.command || !server.args) return null;
+      const evalPatterns = [
+        { cmd: 'python', flag: '-c' },
+        { cmd: 'python3', flag: '-c' },
+        { cmd: 'node', flag: '-e' },
+        { cmd: 'ruby', flag: '-e' },
+        { cmd: 'perl', flag: '-e' },
+      ];
+      const cmd = server.command.toLowerCase();
+      const match = evalPatterns.find((p) => cmd.includes(p.cmd));
+      if (!match) return null;
+      const hasEval = server.args.some((a) => a === match.flag);
+      if (!hasEval) return null;
+      return {
+        ruleId: 'MCP-017',
+        severity: 'HIGH',
+        title: '动态代码执行风险',
+        description: `${server.command} ${match.flag} 允许执行任意代码`,
+        serverName: server.name,
+        detail: 'python -c 或 node -e 可以执行任意代码，与直接暴露 Shell 风险相当',
+        suggestion: '用独立的脚本文件代替 -c/-e 动态执行，并限制脚本内容。',
+        owaspRef: 'A03:2021 – Injection',
+      };
+    },
+  },
+
+  {
+    id: 'MCP-018',
+    severity: 'LOW',
+    title: 'WebSocket 明文连接',
+    description: '检测 ws:// 不安全的 WebSocket 连接',
+    check(server) {
+      if (!server.url) return null;
+      if (!server.url.startsWith('ws://')) return null;
+      return {
+        ruleId: 'MCP-018',
+        severity: 'LOW',
+        title: '不安全的 WebSocket 连接',
+        description: `${server.url} 使用 ws:// 明文协议`,
+        serverName: server.name,
+        detail: 'WebSocket 明文传输可被中间人攻击截获和篡改',
+        suggestion: '使用 wss:// 加密 WebSocket 连接。',
+        owaspRef: 'A02:2021 – Cryptographic Failures',
+      };
+    },
+  },
+
+  {
+    id: 'MCP-019',
+    severity: 'MEDIUM',
+    title: '检测 git 命令操作',
+    description: 'MCP 服务器使用 git 命令，可能泄露源码',
+    check(server) {
+      if (!server.command) return null;
+      if (!server.command.includes('git')) return null;
+      return {
+        ruleId: 'MCP-019',
+        severity: 'MEDIUM',
+        title: 'Git 命令作为 MCP 工具',
+        description: `${server.name} 使用 git 命令，可能泄露源码和提交历史`,
+        serverName: server.name,
+        detail: 'Git 操作可以读取完整源码、提交历史、分支信息',
+        suggestion: '限制 Git 操作为只读，禁止 push --force 和访问 .git/config。',
+      };
+    },
+  },
+
+  {
+    id: 'MCP-020',
+    severity: 'HIGH',
+    title: '检测 sudo/root 权限',
+    description: 'MCP 命令使用了 sudo 或以 root 身份运行',
+    check(server) {
+      if (!server.command && !server.args) return null;
+      const cmd = (server.command || '') + ' ' + (server.args || []).join(' ');
+      if (!/\bsudo\b|\bdoas\b|\broot\b/.test(cmd)) return null;
+      return {
+        ruleId: 'MCP-020',
+        severity: 'HIGH',
+        title: '以超级用户权限运行',
+        description: `${server.name} 的命令使用了 sudo/root 权限`,
+        serverName: server.name,
+        detail: '以 root 权限运行的 MCP 服务器可以做任何事 — 安装软件、修改系统配置、删除文件',
+        suggestion: '以普通用户身份运行 MCP 服务器，使用最小权限原则。',
+        owaspRef: 'A01:2021 – Broken Access Control',
+      };
+    },
+  },
+
+  {
+    id: 'MCP-021',
+    severity: 'MEDIUM',
+    title: '检测数据库直接操作',
+    description: 'MCP 工具命令包含数据库客户端',
+    check(server) {
+      const dbClients = ['mysql', 'psql', 'sqlite3', 'mongo', 'redis-cli', 'pg_dump', 'mysqldump'];
+      if (!server.command) return null;
+      const cmd = server.command.toLowerCase();
+      if (!dbClients.some((d) => cmd.includes(d))) return null;
+      return {
+        ruleId: 'MCP-021',
+        severity: 'MEDIUM',
+        title: '数据库直接访问',
+        description: `${server.command} 作为 MCP 命令，可直接操作数据库`,
+        serverName: server.name,
+        detail: '直接数据库访问可以读取/修改/删除数据，应通过 API 层控制权限',
+        suggestion: '使用只读数据库账号，通过 API 中间层控制访问，添加 SQL 审计日志。',
+      };
+    },
+  },
+
+  {
+    id: 'MCP-022',
+    severity: 'LOW',
+    title: '检测不安全的权限标志',
+    description: '命令参数中包含 --allow-everything 或类似的不安全标志',
+    check(server) {
+      if (!server.args) return null;
+      const unsafeFlags = server.args.filter((a) =>
+        typeof a === 'string' && /--allow-\(all\|everything\)|--no-sandbox|--disable-security|--insecure/i.test(a)
+      );
+      if (unsafeFlags.length === 0) return null;
+      return {
+        ruleId: 'MCP-022',
+        severity: 'LOW',
+        title: '使用了不安全的安全标志',
+        description: `${server.name} 启用了不安全标志: ${unsafeFlags.join(', ')}`,
+        serverName: server.name,
+        detail: '--allow-all 等标志禁用了安全限制，增加了攻击面',
+        suggestion: '使用白名单方式精确授权需要的权限，避免使用 --allow-all。',
+      };
+    },
+  },
+
+  {
+    id: 'MCP-023',
+    severity: 'INFO',
+    title: 'MCP 配置使用相对路径',
+    description: '命令使用相对路径而非绝对路径',
+    check(server) {
+      if (!server.command) return null;
+      if (server.command.includes('/') || server.command.includes('\\')) return null;
+      if (['npx', 'npm', 'node', 'python', 'python3', 'uvx', 'pip'].some((c) => server.command?.startsWith(c))) return null;
+      return {
+        ruleId: 'MCP-023',
+        severity: 'INFO',
+        title: '使用相对路径命令',
+        description: `${server.command} 可能是相对路径，依赖 PATH 环境变量`,
+        serverName: server.name,
+        detail: '依赖 PATH 的命令可能被 PATH 劫持攻击替代',
+        suggestion: '使用绝对路径指定命令，例如 /usr/bin/node 代替 node。',
+      };
+    },
+  },
+
+  {
+    id: 'MCP-024',
+    severity: 'MEDIUM',
+    title: '检测 Docker 命令',
+    description: 'MCP 服务器使用 docker 命令，可能操作容器',
+    check(server) {
+      if (!server.command) return null;
+      if (!server.command.includes('docker') && !server.command.includes('podman')) return null;
+      const dangerousArgs = (server.args || []).filter((a) =>
+        typeof a === 'string' && /rm|stop|kill|prune|exec|run\s+--privileged/i.test(a)
+      );
+      return {
+        ruleId: 'MCP-024',
+        severity: 'MEDIUM',
+        title: 'Docker 命令操作权限',
+        description: `${server.name} 使用 ${server.command} 操作容器`,
+        serverName: server.name,
+        detail: dangerousArgs.length > 0
+          ? `包含危险操作: ${dangerousArgs.join(', ')}`
+          : 'Docker 命令可以创建/删除/修改容器',
+        suggestion: '限制 Docker 操作为只读（如 docker ps, docker logs），禁止 exec/rm/stop。',
+      };
+    },
+  },
+
+  {
+    id: 'MCP-025',
+    severity: 'LOW',
+    title: 'MCP 工具名称冲突检测',
+    description: '检查是否有相同名称的 MCP 服务器',
+    check(server) {
+      // This is a meta-rule — handled at scan level, not per-server
+      return null; // Skipped at per-server level, handled in scanner
+    },
+  },
 ];
+export const RULE_COUNT = RULES.length;
