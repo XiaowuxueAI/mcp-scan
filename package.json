@@ -1,0 +1,46 @@
+{
+  "name": "mcp-scan",
+  "version": "0.1.0",
+  "description": "MCP安检 — MCP服务器安全扫描工具，一键检测Claude Desktop/Cursor/VS Code/Windsurf等AI编程工具的MCP安全配置",
+  "main": "dist/index.js",
+  "bin": {
+    "mcp-scan": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "npx tsc",
+    "start": "node dist/index.js",
+    "dev": "npx ts-node src/index.ts"
+  },
+  "keywords": [
+    "mcp",
+    "security",
+    "scanner",
+    "claude",
+    "cursor",
+    "vscode",
+    "windsurf",
+    "ai",
+    "model-context-protocol",
+    "mcp-security"
+  ],
+  "author": "斌哥 wubin28",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/wubin28/mcp-scan"
+  },
+  "dependencies": {
+    "chalk": "4.1.2",
+    "commander": "^11.0.0",
+    "fs-extra": "^11.1.0",
+    "glob": "^10.3.0"
+  },
+  "devDependencies": {
+    "@types/fs-extra": "^11.0.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}
